@@ -3,7 +3,7 @@ import prompts from "prompts";
 import ora from "ora";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import pc from "picocolors";
 import {
     appendOrReplaceHyperdriveBlock,
@@ -768,6 +768,13 @@ function cliArgsToAnswers(args: CliArgs): Partial<GenerateAnswers> {
 }
 
 async function migrate(cliArgs?: CliArgs) {
+    const unsupportedArgs = Object.keys(cliArgs ?? {}).filter(
+        argument => argument !== "verbose" && argument !== "migrate-target"
+    );
+    if (unsupportedArgs.length > 0) {
+        fatal(`Unsupported migrate argument: --${unsupportedArgs[0]}`);
+    }
+
     // Set verbose mode if specified
     if (cliArgs?.verbose) {
         isVerbose = true;
@@ -791,6 +798,7 @@ async function migrate(cliArgs?: CliArgs) {
     }
 
     const wranglerConfig = config;
+    const projectDirectory = dirname(wranglerConfig.path);
     debugLog(`Reading wrangler config from: ${wranglerConfig.path}`);
     let parsedConfig: ReturnType<typeof parseWranglerConfig>;
     try {
@@ -808,7 +816,7 @@ async function migrate(cliArgs?: CliArgs) {
         fatal("No database configurations found in wrangler config. Please configure a D1 or Hyperdrive database.");
     }
 
-    const pm = detectPackageManager(process.cwd());
+    const pm = detectPackageManager(projectDirectory);
     debugLog(`Detected package manager: ${pm}`);
     const isNonInteractive = Boolean(cliArgs && Object.keys(cliArgs).length > 0);
     debugLog(`Running in ${isNonInteractive ? "non-interactive" : "interactive"} mode`);
@@ -832,9 +840,9 @@ async function migrate(cliArgs?: CliArgs) {
     debugLog("Running auth:update script");
     const authSpinner = createSpinner("Running auth:update...");
     authSpinner.start();
-    const authPm = detectPackageManagerForAuth(process.cwd());
+    const authPm = detectPackageManagerForAuth(projectDirectory);
     debugLog(`Using package manager for auth commands: ${authPm}`);
-    const authRes = runScript(authPm, "auth:update", process.cwd());
+    const authRes = runScript(authPm, "auth:update", projectDirectory);
     if (authRes.code === 0) {
         authSpinner.succeed("Auth schema updated.");
     } else {
@@ -846,7 +854,7 @@ async function migrate(cliArgs?: CliArgs) {
     debugLog("Running db:generate script");
     const dbSpinner = createSpinner("Running db:generate...");
     dbSpinner.start();
-    const dbRes = runScript(pm, "db:generate", process.cwd());
+    const dbRes = runScript(pm, "db:generate", projectDirectory);
     if (dbRes.code === 0) {
         dbSpinner.succeed("Database migrations generated.");
     } else {
@@ -869,7 +877,7 @@ async function migrate(cliArgs?: CliArgs) {
         const hyperdriveDatabases = databases.filter(db => db.type === "hyperdrive");
         const existingHyperdriveDatabases = hyperdriveDatabases.filter(db => {
             if (!db.id) return false;
-            return checkHyperdriveExists(db.id, process.cwd());
+            return checkHyperdriveExists(db.id, projectDirectory);
         });
 
         if (hyperdriveDatabases.length > 0 && existingHyperdriveDatabases.length === 0) {
@@ -892,7 +900,7 @@ async function migrate(cliArgs?: CliArgs) {
     debugLog(`Checking existence of ${d1Databases.length} D1 database(s)`);
     const existingD1Databases = d1Databases.filter(db => {
         if (!db.name) return false;
-        const exists = checkD1DatabaseExists(db.name, process.cwd());
+        const exists = checkD1DatabaseExists(db.name, projectDirectory);
         debugLog(`D1 database ${db.binding} (${db.name}): ${exists ? "exists" : "not found"}`);
         return exists;
     });
@@ -951,7 +959,7 @@ async function migrate(cliArgs?: CliArgs) {
         debugLog("Applying migrations locally (dev environment)");
         const migSpinner = createSpinner("Applying migrations locally...");
         migSpinner.start();
-        const migRes = runScript(pm, "db:migrate:dev", process.cwd());
+        const migRes = runScript(pm, "db:migrate:dev", projectDirectory);
         if (migRes.code === 0) {
             migSpinner.succeed("Migrations applied locally.");
         } else {
@@ -962,7 +970,7 @@ async function migrate(cliArgs?: CliArgs) {
         debugLog("Applying migrations to remote (production environment)");
         const migSpinner = createSpinner("Applying migrations to remote...");
         migSpinner.start();
-        const migRes = runScript(pm, "db:migrate:prod", process.cwd());
+        const migRes = runScript(pm, "db:migrate:prod", projectDirectory);
         if (migRes.code === 0) {
             migSpinner.succeed("Migrations applied to remote.");
         } else {

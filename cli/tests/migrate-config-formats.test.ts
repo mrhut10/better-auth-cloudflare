@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, delimiter, join } from "path";
 import { spawnSync } from "child_process";
 
 const cliPath = join(import.meta.dir, "..", "src", "index.ts");
@@ -19,8 +19,7 @@ describe("migrate config formats", () => {
 
         writeExecutable(
             join(binDirectory, "npm"),
-            `#!/usr/bin/env node
-const { appendFileSync } = require("fs");
+            `const { appendFileSync } = require("fs");
 const args = process.argv.slice(2);
 if (args[0] === "--version") {
     process.stdout.write("10.0.0");
@@ -28,7 +27,7 @@ if (args[0] === "--version") {
 }
 if (args[0] === "view") process.exit(1);
 if (args[0] === "run") {
-    appendFileSync(process.env.CLI_COMMAND_LOG, args[1] + "\\n");
+    appendFileSync(process.env.CLI_COMMAND_LOG, args[1] + "\\t" + process.cwd() + "\\n");
     process.exit(0);
 }
 process.exit(1);
@@ -37,8 +36,7 @@ process.exit(1);
 
         writeExecutable(
             join(binDirectory, "npx"),
-            `#!/usr/bin/env node
-const args = process.argv.slice(2);
+            `const args = process.argv.slice(2);
 if (args[0] !== "wrangler") process.exit(1);
 if (args[1] === "d1" && args[2] === "list") {
     process.stdout.write(JSON.stringify([{ name: "test-db" }]));
@@ -83,6 +81,8 @@ process.exit(1);
         const result = runMigrate(nested, "skip");
         expect(result.status).toBe(0);
         expect(readCommands()).toEqual(["auth:update", "db:generate"]);
+        const projectDirectory = realpathSync(testDirectory);
+        expect(readCommandDirectories()).toEqual([projectDirectory, projectDirectory]);
     });
 
     test("rejects an invalid higher-priority config without falling back", () => {
@@ -95,6 +95,18 @@ process.exit(1);
         const result = runMigrate(testDirectory, "skip");
         expect(result.status).toBe(1);
         expect(result.stdout).toContain("Failed to parse Wrangler config");
+        expect(readCommands()).toEqual([]);
+    });
+
+    test("rejects an unsupported --config argument", () => {
+        writeFileSync(
+            join(testDirectory, "wrangler.json"),
+            '{ "d1_databases": [{ "binding": "DB", "database_name": "test-db" }] }'
+        );
+
+        const result = runMigrate(testDirectory, "skip", ["--config=custom.json"]);
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain("Unsupported migrate argument: --config");
         expect(readCommands()).toEqual([]);
     });
 
@@ -144,6 +156,14 @@ process.exit(1);
     }
 
     function readCommands(): string[] {
+        return readCommandLog().map(line => line.split("\t", 1)[0]);
+    }
+
+    function readCommandDirectories(): string[] {
+        return readCommandLog().map(line => line.split("\t", 2)[1]);
+    }
+
+    function readCommandLog(): string[] {
         try {
             return readFileSync(commandLog, "utf8").trim().split("\n").filter(Boolean);
         } catch {
@@ -151,14 +171,14 @@ process.exit(1);
         }
     }
 
-    function runMigrate(cwd: string, target: "dev" | "skip") {
-        return spawnSync(process.execPath, [cliPath, "migrate", `--migrate-target=${target}`], {
+    function runMigrate(cwd: string, target: "dev" | "skip", extraArgs: string[] = []) {
+        return spawnSync(process.execPath, [cliPath, "migrate", `--migrate-target=${target}`, ...extraArgs], {
             cwd,
             encoding: "utf8",
             timeout: 10_000,
             env: {
                 ...process.env,
-                PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+                PATH: `${binDirectory}${delimiter}${process.env.PATH ?? ""}`,
                 CLI_COMMAND_LOG: commandLog,
             },
         });
@@ -166,6 +186,12 @@ process.exit(1);
 });
 
 function writeExecutable(path: string, content: string): void {
-    writeFileSync(path, content);
+    writeFileSync(`${path}.js`, content);
+    if (process.platform === "win32") {
+        writeFileSync(`${path}.cmd`, `@"${process.execPath}" "%~dp0${basename(path)}.js" %*\r\n`);
+        return;
+    }
+
+    writeFileSync(path, `#!/usr/bin/env node\n${content}`);
     chmodSync(path, 0o755);
 }
