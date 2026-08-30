@@ -86,7 +86,7 @@ The migrate command automatically detects your database configuration from your 
 --r2=<bool>                    Enable R2 to extend Better Auth with user file storage (default: false)
 ```
 
-**KV Integration**: Provides secondary storage for Better Auth sessions, rate limiting, and other features. See [Better Auth secondary storage documentation](https://www.better-auth.com/docs/reference/options#secondarystorage).
+**KV Integration**: Provides session caching and legacy Better Auth 1.5/1.6 secondary-storage fallbacks. Better Auth 1.7 requires atomic verification and rate-limit operations that Workers KV cannot provide. See the repository's KV configuration guide before upgrading.
 
 **R2 Integration**: Enables file upload and management capabilities. See [R2 setup guide](../docs/r2.md) for detailed configuration and usage.
 
