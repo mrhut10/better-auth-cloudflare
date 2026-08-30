@@ -237,7 +237,7 @@ withCloudflare(
 
 ## Wrangler Configuration Reference
 
-The CLI supports `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` configuration files (in order of precedence).
+The CLI's `migrate` command reads `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` in that order.
 
 Complete example with all supported binding types. Include only what you need.
 

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { parseWranglerConfig } from "../src/lib/helpers.js";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { basename, join } from "path";
+import { findWranglerConfig, parseWranglerConfig } from "../src/lib/helpers.js";
 
 describe("parseWranglerConfig", () => {
     test("parses D1 database from TOML", () => {
@@ -18,6 +21,16 @@ database_id = "abc-123"
             binding: "DATABASE",
             name: "mydb",
             id: "abc-123",
+        });
+    });
+
+    test("parses valid single-quoted TOML strings", () => {
+        const result = parseWranglerConfig("[[d1_databases]]\nbinding = 'DATABASE'\ndatabase_name = 'mydb'", "toml");
+        expect(result.databases[0]).toEqual({
+            type: "d1",
+            binding: "DATABASE",
+            name: "mydb",
+            id: undefined,
         });
     });
 
@@ -150,5 +163,53 @@ id = "hd-123"
         const result = parseWranglerConfig(jsonc, "jsonc");
         expect(result.databases).toHaveLength(1);
         expect(result.databases[0].binding).toBe("DB");
+    });
+
+    test("parses comments and trailing commas in a .json config like Wrangler", () => {
+        const result = parseWranglerConfig('{ /* comment */ "d1_databases": [], }', "json");
+        expect(result.databases).toEqual([]);
+    });
+
+    test("rejects a non-object root", () => {
+        expect(() => parseWranglerConfig("[]", "json")).toThrow("JSON object at its root");
+    });
+
+    test("ignores database entries without a string binding", () => {
+        const result = parseWranglerConfig('{ "d1_databases": [{ "binding": 123 }] }', "json");
+        expect(result.databases).toEqual([]);
+    });
+});
+
+describe("Wrangler config discovery", () => {
+    test("matches Wrangler precedence", () => {
+        const directory = mkdtempSync(join(tmpdir(), "better-auth-cloudflare-wrangler-"));
+        try {
+            writeFileSync(join(directory, "wrangler.toml"), 'name = "toml"');
+            writeFileSync(join(directory, "wrangler.jsonc"), '{ "name": "jsonc" }');
+            writeFileSync(join(directory, "wrangler.json"), '{ "name": "json" }');
+
+            const result = findWranglerConfig(directory);
+            expect(result?.format).toBe("json");
+            expect(basename(result?.path ?? "")).toBe("wrangler.json");
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    test("matches Wrangler precedence across parent directories", () => {
+        const directory = mkdtempSync(join(tmpdir(), "better-auth-cloudflare-wrangler-"));
+        try {
+            const project = join(directory, "project");
+            const nested = join(project, "src", "routes");
+            mkdirSync(nested, { recursive: true });
+            writeFileSync(join(directory, "wrangler.json"), '{ "name": "parent-json" }');
+            writeFileSync(join(project, "wrangler.toml"), 'name = "nearer-toml"');
+
+            const result = findWranglerConfig(nested);
+            expect(result?.format).toBe("json");
+            expect(result?.path).toBe(join(directory, "wrangler.json"));
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
     });
 });

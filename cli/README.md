@@ -21,7 +21,7 @@ Generate a Better Auth Cloudflare project with D1, KV, R2, or Hyperdrive. This C
 
 ☁️ Handles Cloudflare resource creation:
 
-- Runs `wrangler d1/kv/r2 create` commands and configures your wrangler config file
+- Runs `wrangler d1/kv/r2 create` commands and configures `wrangler.toml`
 - Sets up Hyperdrive connections and auth integrations
 
 📦 Runs initial setup: `@better-auth/cli generate`, `drizzle-kit generate`, and optionally applies migrations
@@ -69,11 +69,10 @@ npx @better-auth-cloudflare/cli migrate              # Interactive
 npx @better-auth-cloudflare/cli migrate --migrate-target=dev  # Non-interactive
 ```
 
-The migrate command automatically detects your database configuration from your wrangler config file (`wrangler.json`, `wrangler.jsonc`, or `wrangler.toml`). It supports:
+The migrate command automatically detects your database configuration from `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml`. It supports:
 
 - **D1 databases**: Offers migration options (dev/remote)
 - **Hyperdrive databases**: Shows informational message
-- **Multiple databases**: Prompts you to choose which D1 database to migrate
 
 ## Arguments
 
@@ -121,7 +120,6 @@ The migrate command automatically detects your database configuration from your 
 
 ```
 --migrate-target=<target>      For migrate command: dev | remote | skip (default: skip)
---config=<path>                Path to wrangler config file (default: auto-detect wrangler.json/jsonc/toml)
 ```
 
 ## Examples
