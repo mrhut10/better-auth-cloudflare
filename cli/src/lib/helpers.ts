@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "fs";
 import { dirname, join, resolve } from "path";
-import * as TOML from "@iarna/toml";
 import { parse as parseJSONC, printParseErrorCode, type ParseError } from "jsonc-parser";
+import { parse as parseTOML } from "smol-toml";
 
 export type JSONValue = string | number | boolean | null | JSONArray | JSONObject;
 export interface JSONObject {
@@ -133,7 +133,7 @@ export function parseWranglerToml(tomlContent: string): {
     databases: DatabaseConfig[];
     hasMultipleDatabases: boolean;
 } {
-    return parseWranglerConfigObject(TOML.parse(tomlContent));
+    return parseWranglerConfigObject(parseTOML(tomlContent));
 }
 
 export type WranglerConfigFormat = "toml" | "json" | "jsonc";
@@ -155,6 +155,26 @@ function findFileUpward(referencePath: string, filename: string): string | null 
     }
 }
 
+const unsupportedBoms = [
+    { bytes: Buffer.from([0x00, 0x00, 0xfe, 0xff]), encoding: "UTF-32 BE" },
+    { bytes: Buffer.from([0xff, 0xfe, 0x00, 0x00]), encoding: "UTF-32 LE" },
+    { bytes: Buffer.from([0xfe, 0xff]), encoding: "UTF-16 BE" },
+    { bytes: Buffer.from([0xff, 0xfe]), encoding: "UTF-16 LE" },
+];
+
+function readWranglerConfigFile(configPath: string): string {
+    const content = readFileSync(configPath);
+    for (const bom of unsupportedBoms) {
+        if (content.subarray(0, bom.bytes.length).equals(bom.bytes)) {
+            throw new Error(`Wrangler config uses ${bom.encoding}. Save it as UTF-8.`);
+        }
+    }
+
+    const utf8Bom = Buffer.from([0xef, 0xbb, 0xbf]);
+    const start = content.subarray(0, utf8Bom.length).equals(utf8Bom) ? utf8Bom.length : 0;
+    return content.subarray(start).toString("utf8");
+}
+
 export function findWranglerConfig(cwd: string = process.cwd()): WranglerConfigResult | null {
     const configFiles: Array<{ name: string; format: WranglerConfigFormat }> = [
         { name: "wrangler.json", format: "json" },
@@ -165,7 +185,7 @@ export function findWranglerConfig(cwd: string = process.cwd()): WranglerConfigR
     for (const configFile of configFiles) {
         const configPath = findFileUpward(cwd, configFile.name);
         if (configPath) {
-            const content = readFileSync(configPath, "utf8");
+            const content = readWranglerConfigFile(configPath);
             return {
                 path: configPath,
                 content,
@@ -219,7 +239,7 @@ function parseWranglerConfigObject(parsed: unknown): {
     hasMultipleDatabases: boolean;
 } {
     if (!isRecord(parsed)) {
-        throw new Error("Wrangler config must contain a JSON object at its root.");
+        throw new Error("Wrangler config must contain an object at its root.");
     }
 
     const config: WranglerConfigShape = {
